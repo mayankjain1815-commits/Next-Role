@@ -1,0 +1,68 @@
+name: CI
+
+# Backend unit tests run only when backend code (or a workflow file) changes.
+# The workflow ALWAYS triggers so the required `backend-tests` check is always
+# reported; the expensive job is gated by a job-level `if:`. A job skipped by a
+# conditional reports "Success" and satisfies the required check, whereas a
+# workflow-level `paths:` skip leaves the check stuck in "Expected" and blocks
+# the merge:
+# https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/defining-the-mergeability-of-pull-requests/troubleshooting-required-status-checks
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same ref (e.g. new push to a PR branch).
+concurrency:
+  group: ci-backend-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Cheap gate (~10s) deciding whether the backend suite needs to run. Its own
+  # check (`detect-backend`) is not required; it only feeds the `if:` below.
+  detect-backend:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Detect backend changes
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        id: filter
+        with:
+          filters: |
+            backend:
+              - "backend/**"
+              - ".github/workflows/**"
+
+  # Backend tests: the default suite (unit tests). Integration tests
+  # (`-m integration`) need a live Postgres/Redis stack and run separately.
+  # Skipped (→ reports success) on frontend-only and doc-only changes.
+  backend-tests:
+    name: backend-tests
+    needs: detect-backend
+    if: needs.detect-backend.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0 # no moving v8 major tag is published; pin the exact release
+        with:
+          enable-cache: true
+
+      - name: Sync backend
+        run: uv sync
+
+      - name: Run unit tests
+        run: uv run pytest

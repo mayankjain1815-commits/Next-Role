@@ -1,0 +1,42 @@
+# Virtualenv — also masked at runtime via an anonymous volume in
+# docker-compose.yml so the container's `.venv` never collides with the host's.
+.venv
+
+# Python bytecode + tooling caches
+__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.ty_cache
+
+# Build / coverage artifacts
+*.egg-info
+dist
+build
+.coverage
+htmlcov
+
+# Secrets — never bake into the image
+.env
+.env.*
+!.env.example
+
+# OS / IDE
+.DS_Store
+.vscode
+.idea
+
+# User-uploaded and agent-generated content — personal data, never bake into
+# image layers. Mirrors backend/.gitignore; `**/` because the dirs live under
+# agents/career_agent/ (the build context is backend/, so bare names would
+# only match at the context root).
+**/upload
+**/processed
+**/research
+**/tailored_resume
+**/render_intermediate
+**/interview_coach
+**/interview_battlecard
+**/conversation_history
+local_experiments

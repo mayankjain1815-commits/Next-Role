@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <link href="battlecard.css" rel="stylesheet">
+    <title>{{ document_title | default('Interview Battle Card') }}</title>
+  </head>
+
+  <body>
+    {% for round in rounds %}
+    <article class="round">
+      <header class="round-header">
+        <h1>{{ round.title }}</h1>
+        {% if round.subtitle %}<p class="subtitle">{{ round.subtitle }}</p>{% endif %}
+      </header>
+
+      <div class="grid">
+        <div class="col col-left">
+          <section class="card card-intro">
+            <div class="card-tab"><h2>Introduction</h2></div>
+            <ul>
+              {% for item in round.introduction %}<li>{{ item }}</li>{% endfor %}
+            </ul>
+          </section>
+
+          <section class="card card-stories">
+            <div class="card-tab"><h2>Stories ready</h2></div>
+            <ul>
+              {% for item in round.stories_ready %}
+              <li>
+                {% if item.title %}<strong>{{ item.title }}</strong>{% if item.body %} &mdash; {% endif %}{% endif %}{{ item.body }}
+              </li>
+              {% endfor %}
+            </ul>
+          </section>
+        </div>
+
+        <div class="col col-right">
+          <section class="card card-facts">
+            <div class="card-tab"><h2>Company facts to drop</h2></div>
+            <ul>
+              {% for item in round.company_facts %}<li>{{ item }}</li>{% endfor %}
+            </ul>
+          </section>
+
+          <section class="card card-questions">
+            <div class="card-tab"><h2>Questions to ask</h2></div>
+            <ul>
+              {% for item in round.questions %}<li>{{ item }}</li>{% endfor %}
+            </ul>
+          </section>
+
+          <section class="card card-watchouts">
+            <div class="card-tab"><h2>Watch-outs</h2></div>
+            <ul>
+              {% for item in round.watch_outs %}<li>{{ item }}</li>{% endfor %}
+            </ul>
+          </section>
+        </div>
+      </div>
+    </article>
+    {% endfor %}
+  </body>
+</html>

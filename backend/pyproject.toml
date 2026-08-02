@@ -1,0 +1,262 @@
+[dependency-groups]
+dev = [
+  "ruff>=0.16.1",
+  "pytest>=9.1.1",
+  "pytest-asyncio>=1.4.0",
+  "pytest-cov>=7.1.0",
+  "pre-commit>=4.6.1",
+  "toml-sort>=0.24.4",
+  "ty>=0.0.65",
+  # Regenerates grpc_common/proto stubs; exact-pinned to match
+  # GRPC_GENERATED_VERSION baked into the generated *_pb2_grpc.py files.
+  "grpcio-tools==1.80.0"
+]
+
+[project]
+name = "NextRole"
+version = "0.0.1"
+description = "GenAI-Accelerated Career Advancement"
+authors = [
+  {name = "Tam Nguyen", email = "npt.dc@outlook.com"}
+]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "langchain>=1.3.14",
+  "langchain-aws>=1.6.4",
+  "langchain-openai>=1.4.1",
+  "langchain-anthropic>=1.5.3",
+  "langchain-google-genai>=4.3.2",
+  "langchain-tavily>=0.2.18",
+  "langgraph>=1.2.10,<2",
+  "deepagents>=0.7.1",
+  "llama-cloud>=2.13.0",
+  "pydantic-settings>=2.14.2",
+  "python-dotenv>=1.2.2",
+  "tavily-python>=0.7.27",
+  "rendercv[full]>=2.8",
+  "weasyprint>=69.0",
+  "types-python-dateutil>=2.9.0.20260716",
+  "types-pyyaml>=6.0.12.20260724",
+  "types-requests>=2.33.0.20260712",
+  # --- Agent server runtime (backend/ARCHITECTURE.md) ---
+  # Upper bounds are compat pins required by the server code, not staleness:
+  # grpcio band must match the generated proto stubs (GRPC_GENERATED_VERSION).
+  "croniter>=6.2.4",
+  "cloudpickle>=3.1.2",
+  "cryptography>=50.0.0",
+  "google-auth>=2.56.2",
+  "grpcio>=1.80.0,<1.81.0",
+  "grpcio-health-checking>=1.80.0,<1.81.0",
+  "httptools>=0.7.1; platform_system != 'Windows'",
+  "httpx>=0.28.1",
+  "jsonschema-rs>=0.44.1,<0.45",
+  "langchain-core>=1.5.3",
+  # v2 streaming wire format; >=0.0.18 matches the frontend SDK's bundled version
+  "langchain-protocol>=0.0.18,<0.1",
+  "langgraph-checkpoint>=4.1.0,<5",
+  "langgraph-checkpoint-postgres>=3.1.1",
+  "langgraph-runtime-inmem>=0.30.3,<0.31.0",
+  "langgraph-sdk>=0.4.2",
+  "langsmith[otel]>=0.10.15",
+  "opentelemetry-api>=1.44.0",
+  "opentelemetry-exporter-otlp-proto-http>=1.44.0",
+  "opentelemetry-sdk>=1.44.0",
+  "orjson>=3.11.9",
+  "protobuf>=6.33.6,<7.0.0",
+  "psycopg[binary,pool]>=3.3.4",
+  "pyjwt>=2.12.1",
+  "redis>=8.1.0",
+  "sse-starlette>=3.3.4,<3.4.0",
+  "starlette>=1.0.1",
+  "structlog>=25.5.0,<26",
+  "tenacity>=9.1.4",
+  "truststore>=0.10.4",
+  "uuid-utils>=0.17.0",
+  "uvicorn>=0.52.0",
+  "uvloop>=0.22.1; platform_system != 'Windows'",
+  "watchfiles>=1.2.0",
+  "websockets>=15.0.1",
+  "zstandard>=0.25.0",
+  "obstore>=0.11.0",
+  "python-multipart>=0.0.32",
+  "pyyaml>=6.0.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Repo root for `backend.agents.*` namespace imports; "." for the server
+# top-level packages (server.core_server, ...) — mirrors [tool.ty.environment].
+pythonpath = ["..", "."]
+asyncio_mode = "auto"
+addopts = "--import-mode=importlib -m 'not integration and not eval'"
+markers = [
+  "integration: hits real I/O — Postgres, Redis, HTTP, filesystem fixtures",
+  "eval: LLM evaluation — slow and costly, opt-in only"
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+# Exclude a variety of commonly ignored directories. Top-level [tool.ruff]
+# exclude applies to BOTH the linter and the formatter ([tool.ruff.lint]
+# exclude would silently not cover `ruff format`).
+exclude = [
+  ".bzr",
+  ".direnv",
+  ".eggs",
+  ".git",
+  ".git-rewrite",
+  ".hg",
+  ".mypy_cache",
+  ".nox",
+  ".pants.d",
+  ".pytype",
+  ".ruff_cache",
+  ".svn",
+  ".tox",
+  ".venv",
+  "__pypackages__",
+  "_build",
+  "buck-out",
+  "build",
+  "dist",
+  "node_modules",
+  "notebooks",
+  "venv",
+  # Generated protobuf/gRPC stubs (see .gitattributes linguist-generated).
+  # Regenerate with grpcio-tools==1.80.0; never hand-edit or lint.
+  # `**/` prefix required: `ruff check .` produces ./-prefixed candidate paths
+  # that an anchored `grpc_common/proto` pattern fails to match.
+  "**/grpc_common/proto"
+]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff.lint]
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+# Enable pycodestyle (`E`) and Pyflakes (`F`) codes by default.
+# select = ["AIR", "ARG", "B", "D", "E", "F", "I", "ICN", "N", "PD", "PT", "PTH", "RET", "TD", "TID", "W"]
+# select = ["A", "B", "C", "D", "E", "F", "G", "I", "N", "Q", "S", "T", "W", "ANN", "ARG", "BLE", "COM", "DJ", "EM", "ERA", "EXE", "ICN", "INP", "ISC", "NPY", "PD", "PGH", "PIE", "PL", "PT", "PTH", "PYI", "RET", "RSE", "RUF", "SIM", "SLF", "TCH", "TID", "UP", "YTT"]
+select = ["ALL"]
+ignore = [
+  # "ANN", # Type hints related, let mypy/pyright handle these.
+  # "ARG001", # Unused function argument - OK for Celery tasks with bind=True
+  # "B008", # Function call in argument defaults - OK for FastAPI Depends()
+  "BLE001", # Blind exception catching - OK for health checks and error handlers
+  # "C901", # Function is too complex - OK for data preparation functions
+  "CPY001", # Copyright notice at top of file - no such convention in this repo (new in ruff 0.16)
+  # "COM812", # "Trailing comma missing". If black is happy, I'm happy.
+  "D104", # "Missing docstring in public package"
+  # "D107", # "Missing docstring in __init__"
+  # "D212", # "Multi-line docstring summary should start at the first line"
+  # "D203", # "1 blank line required before class docstring"
+  # "D401", # Imperative mood for docstrings - OK as is
+  # "DTZ001", # "The use of datetime.datetime() without tzinfo argument is not allowed". It's OK for Airflow DAG start_date
+  # "DTZ003", # datetime.utcnow() - We use it for naive UTC timestamps
+  # "E501", # "Line too long". If black is happy, I'm happy.
+  # "EM101", # "Exception must not use a string literal, assign to variable first". It's OK
+  # "EM102", # "Exception must not use an f-string literal, assign to variable first". It's OK
+  # "ERA001", # Commented-out code - Keep for S3 future implementation
+  # "FAST001", # FastAPI response_model - Can be explicit for clarity
+  # "FAST002", # FastAPI Annotated - Not required for Depends
+  # "FBT003", # "Boolean positional value in function call". I need to defind Spark StructField not NULL columns
+  # "FIX002", # "Line contains TODO, consider resolving the issue". It's OK
+  # "G004", # "Logging statement uses f-string". Will try to logger.info("Hello, %s!", name)
+  # "INP001", # "File {filename} is part of an implicit namespace package. Add an __init__.py". dags folder doesn't need __init__.py
+  "PLC0415", # Import not at top-level - OK for conditional imports in functions
+  # "PLR0913", # "Too many arguments to function call ({c_args} > {max_args})". It's OK for some functions
+  # "PLR2004", # Magic values in comparisons - OK for simple constants
+  # "PLW2901", # Loop variable overwritten - OK for error handling in loops
+  # "RET504", # "Unnecessary variable assignment before return statement". It's OK to make result clearer
+  # "S307", # eval() usage - OK for parsing Redis string data
+  # "SIM102", # Use single if - Nested if for clarity is OK
+  # "TRY301", # Abstract raise to inner function - Unnecessary for simple cases
+  # "TRY401" # Redundant exception in logging.exception - Explicit is clearer
+]
+# Allow autofix for all enabled rules (when `--fix`) is provided.
+fixable = ["ALL"]
+unfixable = []
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+# Agent server packages (see backend/ARCHITECTURE.md).
+# Noisy stylistic families are off wholesale for the server packages;
+# real-bug classes (F, E, W, B, I, DTZ, RUF, ...) stay on everywhere.
+# S (security) reviewed once (ARCHITECTURE.md): S608 trusted SQL templates, S104 server
+# binds, S311 retry jitter — all by design. RUF100 off because existing noqa
+# comments reference rules this config ignores.
+"server/**" = [
+  "A",
+  "ANN",
+  "ARG",
+  "ASYNC",
+  "B008",
+  "C4",
+  "C901",
+  "D",
+  "E402",
+  "E501",
+  "EM",
+  "ERA",
+  "FBT",
+  "FIX",
+  "FURB",
+  "G",
+  "INP",
+  "ISC004",
+  "LOG004",
+  "N",
+  "PERF",
+  "PIE",
+  "PLC",
+  "PLR",
+  "PLW",
+  "PTH",
+  "PYI",
+  "RET",
+  "RSE",
+  "RUF100",
+  "S",
+  "SIM",
+  "SLF",
+  "T100",
+  "TC",
+  "TD",
+  "TRY",
+  "UP"
+]
+"tests/**/*.py" = [
+  "S101",
+  "D100",
+  "D103",
+  "D401",
+  "ANN001",
+  "ANN002",
+  "ANN003",
+  "ANN201",
+  "ANN202",
+  "ANN204",
+  "ARG001",
+  "ARG002",
+  "INP001",
+  "PLR2004"
+]
+"**/notebooks/**/*.ipynb" = ["D100"]
+
+[tool.ty.environment]
+# Repo root first so the repo-root-anchored `backend.agents.*` namespace imports
+# resolve (mirrors pytest's `pythonpath = [".."]`); "." keeps the server
+# top-level packages (api, ...) resolvable as first-party modules.
+root = ["..", "."]
+
+[tool.ty.src]
+# The server packages carry ~1k inherited type diagnostics; exclude them
+# path-level so agents/ and tests/ keep full type checking.
+exclude = [
+  "server/"
+]

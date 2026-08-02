@@ -1,0 +1,261 @@
+volumes:
+  pg-data:
+    driver: local
+  seaweed-data:
+    driver: local
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    working_dir: /deps/next-role/frontend
+    # Self-heal node_modules against the host's pnpm-lock.yaml on every boot,
+    # then start the dev server. Lets `pnpm add` on the host take effect via a
+    # plain `docker compose restart frontend` — no rebuild, no volume nuking.
+    # When the lockfile is already in sync this is a fast no-op.
+    command: sh -c "pnpm install --frozen-lockfile && pnpm dev --hostname 0.0.0.0"
+    ports:
+      - "${FRONTEND_LOCAL_PORT}:3000"
+    environment:
+      PORT: 3000
+      NEXT_PUBLIC_LANGGRAPH_DEPLOYMENT_URL: ${NEXT_PUBLIC_LANGGRAPH_DEPLOYMENT_URL}
+      NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID: ${NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID}
+      NEXT_PUBLIC_LANGSMITH_API_KEY: ${NEXT_PUBLIC_LANGSMITH_API_KEY}
+      # --- Multi-user auth (opt-in; unset keeps zero-login single-user mode) ---
+      NEXT_PUBLIC_AUTH_ENABLED: ${AUTH_ENABLED:-false}
+      NEXT_PUBLIC_AUTH_GOOGLE_ENABLED: ${AUTH_GOOGLE_ENABLED:-false}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
+      BETTER_AUTH_URL: http://localhost:${FRONTEND_LOCAL_PORT}
+      AUTH_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      GOOGLE_AUTH_CLIENT_ID: ${GOOGLE_AUTH_CLIENT_ID:-}
+      GOOGLE_AUTH_CLIENT_SECRET: ${GOOGLE_AUTH_CLIENT_SECRET:-}
+      # Pin pnpm's content-addressed store inside the container layer so it
+      # doesn't spill into the bind-mounted project as `.pnpm-store/`. (pnpm
+      # falls back to a project-local store when its default location is on a
+      # different filesystem than node_modules — which is exactly the case
+      # inside this container.)
+      PNPM_HOME: /root/.pnpm
+      npm_config_store_dir: /root/.pnpm/store
+      # Lets pnpm purge a stale `node_modules` (e.g. when the store path
+      # changes) without prompting for confirmation — there's no TTY here.
+      CI: "true"
+    volumes:
+      - .:/deps/next-role
+      - /deps/next-role/frontend/node_modules
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://localhost:3000/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\"",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:8
+    ports:
+      - "${REDIS_LOCAL_PORT}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 1s
+      retries: 5
+
+  postgres:
+    image: pgvector/pgvector:pg18
+    ports:
+      - "${POSTGRES_LOCAL_PORT}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pg-data:/var/lib/postgresql/18/docker
+      - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      start_period: 10s
+      timeout: 1s
+      retries: 5
+      interval: 60s
+      start_interval: 1s
+
+  # S3-compatible object storage for binary artifacts (uploads + rendered
+  # PDFs). SeaweedFS all-in-one: master (9333), volume, filer (8888, browsable
+  # UI), S3 gateway (8333). No -s3.config -> auth is disabled, so the dev
+  # OBJECT_STORE_* credentials are accepted but not enforced (private compose
+  # network only; real creds/IAM arrive with cloud provisioning).
+  object-store:
+    image: chrislusf/seaweedfs:4.22
+    command: server -s3 -dir=/data -ip.bind=0.0.0.0
+    ports:
+      - "${OBJECT_STORE_LOCAL_PORT}:8333"
+      - "${OBJECT_STORE_UI_LOCAL_PORT}:8888"
+    volumes:
+      - seaweed-data:/data
+    healthcheck:
+      # Master healthz; the init container's retry loop covers the short gap
+      # until the S3 gateway itself accepts requests.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:9333/cluster/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+      start_interval: 1s
+
+  # One-shot bucket bootstrap (S3 CreateBucket is not in obstore's scope, and
+  # SeaweedFS only auto-creates buckets for authenticated admins). Reuses the
+  # backend image purely for curl — anonymous PUT works because auth is
+  # disabled above. GET on the bucket root (ListObjects) probes existence.
+  object-store-init:
+    image: next-role-backend:local
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: "no"
+    depends_on:
+      object-store:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        for i in $(seq 1 60); do
+        curl -sf -o /dev/null "http://object-store:8333/${OBJECT_STORE_BUCKET}" && exit 0;
+        curl -sf -X PUT -o /dev/null "http://object-store:8333/${OBJECT_STORE_BUCKET}" && exit 0;
+        sleep 1;
+        done;
+        echo "object-store bucket init failed" >&2; exit 1
+
+  # The gRPC data plane of the agent server (backend/server/core_server/).
+  # Owns all assistant/thread/run/cron SQL and the Redis queue doorbell/pub-sub
+  # fan-out; the backend blocks at boot until this is reachable. Same image as
+  # the backend, different command. Internal-only — no host port. Code edits
+  # under backend/server/core_server/ or backend/server/grpc_common/ need a
+  # `docker compose restart core-server` (no hot reload here).
+  core-server:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: next-role-backend:local
+    restart: on-failure
+    command: ["python", "-m", "server.core_server"]
+    volumes:
+      - .:/deps/next-role
+      - /deps/next-role/backend/.venv
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      CORE_SERVER_BIND: 0.0.0.0:50052
+      # Default is a Go-binary fallback at localhost:50051; empty disables it —
+      # all RPCs are served natively by the Python implementation.
+      CORE_SERVER_GO_FALLBACK: ""
+      CORE_SERVER_POSTGRES_URI: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      CORE_SERVER_REDIS_URI: redis://redis:6379
+      # Only used to enumerate registered graph ids (assistant scoping); the
+      # graph itself is loaded by the backend service.
+      LANGSERVE_GRAPHS: >-
+        {
+          "career_agent": "/deps/next-role/backend/agents/career_agent/agents.py:career_agent"
+        }
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import socket; socket.create_connection(('localhost', 50052), 2)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+      start_interval: 1s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: next-role-backend:local
+    restart: on-failure
+    # Image CMD + --reload: uvicorn/watchfiles watches the bind-mounted source,
+    # so backend code edits (agents/ and server packages alike) hot-reload.
+    command: ["uvicorn", "server.api.server:app",
+              "--log-config", "server/logging.json",
+              "--host", "0.0.0.0", "--port", "8000",
+              "--no-access-log",
+              "--timeout-graceful-shutdown", "3600",
+              "--timeout-keep-alive", "75",
+              "--reload"]
+    ports:
+      - "${LANGGRAPH_LOCAL_PORT}:8000"
+    volumes:
+      - .:/deps/next-role
+      # Keep the container's uv-managed `.venv` isolated from the host. Without
+      # this, `uv run` inside the container creates `/deps/next-role/backend/.venv`
+      # which leaks through the bind mount to the host with container-style paths
+      # hardcoded — making the venv unusable from macOS and clobbering any host
+      # venv. Same pattern as frontend `node_modules` above. (The image's own
+      # venv lives at /opt/venv, outside the mount.)
+      - /deps/next-role/backend/.venv
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      core-server:
+        condition: service_healthy
+      object-store:
+        condition: service_healthy
+      object-store-init:
+        condition: service_completed_successfully
+    environment:
+      REDIS_URI: redis://redis:6379
+      # In-network S3 endpoint (overrides the host-side value in .env).
+      OBJECT_STORE_ENDPOINT: http://object-store:8333
+      # Mounts the artifact files API (backend/agents/files_api.py) into the
+      # agent server — the vendored server's designed custom-app hook.
+      # enable_custom_route_auth puts the mounted routes behind the server's
+      # auth middleware: a no-op under noop auth, required in multi-user mode.
+      LANGGRAPH_HTTP: >-
+        {"app": "/deps/next-role/backend/agents/files_api.py:app",
+         "enable_custom_route_auth": true}
+      # Multi-user auth verification targets (used only when LANGGRAPH_AUTH is
+      # set in .env; harmless otherwise). In-network JWKS URL — the backend
+      # verifies bearer JWTs minted by the frontend's Better Auth.
+      AUTH_JWKS_URL: http://frontend:3000/api/auth/jwks
+      AUTH_JWT_ISSUER: http://localhost:${FRONTEND_LOCAL_PORT}
+      AUTH_JWT_AUDIENCE: http://localhost:${FRONTEND_LOCAL_PORT}
+      POSTGRES_URI: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # Selects the postgres backend in the runtime edition router
+      # (hard-required — the router raises if unset).
+      LANGGRAPH_RUNTIME_EDITION: postgres
+      LSD_GRPC_SERVER_ADDRESS: core-server:50052
+      # Repo-owned migrations, applied at boot under a Redis lock (the code
+      # default is the official image's /storage/migrations).
+      MIGRATIONS_PATH: /deps/next-role/backend/storage/migrations
+      LANGSERVE_GRAPHS: >-
+        {
+          "career_agent": "/deps/next-role/backend/agents/career_agent/agents.py:career_agent"
+        }
+    env_file: .env
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/ok', timeout=5).status==200 else 1)",
+        ]
+      interval: 60s
+      timeout: 5s
+      retries: 5
+      # First boot budget: migrations no-op + up to 60s waiting on core-server
+      # gRPC readiness.
+      start_period: 60s
+      start_interval: 2s

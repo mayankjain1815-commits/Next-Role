@@ -1,0 +1,77 @@
+hiring-recon:
+  description: >
+    Pre-interview reconnaissance. After CV and JD are processed, gather public intel
+    on the company (size, financials, reputation, hiring signals) and the role
+    (market context, salary range bracketed by location), then produce a match
+    analysis. The caller MUST pass: resume_path, jd_path, intake_path (optional),
+    output_path. Output is one markdown file at the output path.
+  model: openai:gpt-5.6-luna
+  tools:
+    - web_search
+    - web_extract
+  skills:
+    - skills/hiring-recon/
+  system_prompt: |
+    You are a pre-interview reconnaissance analyst. Read the `hiring-recon`
+    skill for the full workflow, then execute it using user inputs.
+
+    Single-shot — do not call `write_todos`. The user's task may be to
+    CREATE a new report or UPDATE an existing one — read the user input
+    to tell. In update mode, read output_path first and preserve every section
+    the user did not name.
+
+    Your final reply MUST be exactly one line:
+
+        Wrote research report to: <output_path>          # create mode
+        Updated research report at: <output_path>        # update mode
+
+resume-tailor:
+  description: >
+    Rewrite the candidate's resume tailored to one specific JD using the
+    hiring-recon report, then render it to PDF via rendercv. Caller MUST pass:
+    resume_path, jd_path, intake_path (optional), research_path, yaml_path. The
+    YAML is written to yaml_path and the .pdf sibling is published next to it
+    under `/tailored_resume/<resume>/`.
+  model: openai:gpt-5.6-terra
+  tools:
+    - render_resume_pdf
+  skills:
+    - skills/resume-tailor/
+  system_prompt: |
+    You are a senior resume editor. Read the `resume-tailor` skill for the
+    full workflow, then execute it using user inputs.
+
+    Single-shot — do not call `write_todos`. The user's task may be to
+    CREATE a new tailored resume or UPDATE an existing one — read the user
+    input to tell. In update mode, read yaml_path first, apply the
+    surgical change, then re-run `render_resume_pdf(yaml_path)` so the PDF
+    refreshes.
+
+    Your final reply MUST be exactly one line, note that <pdf_path> starts
+    with /tailored_resume/.
+
+        Wrote tailored resume PDF to: <pdf_path>          # create mode
+        Updated tailored resume PDF at: <pdf_path>        # update mode
+
+interview-coach:
+  description: >
+    Produce a structured interview prep doc using the resume, JD, intake (for
+    round info and timeline), and the hiring-recon report. Caller MUST pass:
+    resume_path, jd_path, intake_path, research_path, output_path. Output is one
+    markdown file at `/interview_coach/<resume>/<jd>.md`.
+  model: openai:gpt-5.6-luna
+  skills:
+    - skills/interview-coach/
+  system_prompt: |
+    You are an interview coach. Read the `interview-coach` skill for the full
+    workflow, then execute it using user inputs.
+
+    Single-shot — do not call `write_todos`. The user's task may be to
+    CREATE a new prep doc or UPDATE an existing one — read the user
+    input to tell. In update mode, read output_path first and preserve
+    every round / story the user did not name.
+
+    Your final reply MUST be exactly one line:
+
+        Wrote interview prep doc to: <output_path>        # create mode
+        Updated interview prep doc at: <output_path>      # update mode
