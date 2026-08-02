@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.13"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -1286,7 +1286,7 @@ wheels = [
 
 [[package]]
 name = "langgraph-runtime-inmem"
-version = "0.30.3"
+version = "0.31.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "blockbuster" },
@@ -1297,9 +1297,9 @@ dependencies = [
     { name = "starlette" },
     { name = "structlog" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e4/f3/512478928756db7084cc234be7d529d2f428e2abb73c09a1966821675b59/langgraph_runtime_inmem-0.30.3.tar.gz", hash = "sha256:ca34fedf614d1ca3b815aa568d8cd8f9cc4bc47dacda4010bab42bd97809e41d", size = 129964, upload-time = "2026-07-09T21:26:50.33Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c7/72/8ece1553702899434488739f6825266621f047d8485c83996c0dfafb57e6/langgraph_runtime_inmem-0.31.2.tar.gz", hash = "sha256:544ee05ec8d5fa95e1cfce6b6670fd9a1830a794115efc448dd805eed8cd0401", size = 130358, upload-time = "2026-07-28T15:27:04.011Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8d/66/57fb83e697b03b39259ab1b3867759f99b31ecf17177b9d6b8fe5ec56853/langgraph_runtime_inmem-0.30.3-py3-none-any.whl", hash = "sha256:b840dc5058f0e6ba639d786420b1a8e836a8ba4dd4988508dc4ac0aed7709717", size = 51760, upload-time = "2026-07-09T21:26:49.17Z" },
+    { url = "https://files.pythonhosted.org/packages/26/11/3bca2ea281bcaee7e4aee2b273d163399a43d1d5981130e10eed1761229e/langgraph_runtime_inmem-0.31.2-py3-none-any.whl", hash = "sha256:640ee421864c78496a81d01a58e5ac488e8e8db4a818a92d5d18c90dbeb745b3", size = 52200, upload-time = "2026-07-28T15:27:02.967Z" },
 ]
 
 [[package]]
@@ -1627,7 +1627,7 @@ requires-dist = [
     { name = "langgraph", specifier = ">=1.2.10,<2" },
     { name = "langgraph-checkpoint", specifier = ">=4.1.0,<5" },
     { name = "langgraph-checkpoint-postgres", specifier = ">=3.1.1" },
-    { name = "langgraph-runtime-inmem", specifier = ">=0.30.3,<0.31.0" },
+    { name = "langgraph-runtime-inmem", specifier = ">=0.31.2,<0.32.0" },
     { name = "langgraph-sdk", specifier = ">=0.4.2" },
     { name = "langsmith", extras = ["otel"], specifier = ">=0.10.15" },
     { name = "llama-cloud", specifier = ">=2.13.0" },
