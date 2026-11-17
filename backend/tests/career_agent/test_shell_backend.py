@@ -57,7 +57,7 @@ def test_translate_blocks_dotdot_escape(backend: VirtualPathShellBackend) -> Non
 
 def test_translate_preserves_quoted_arguments(backend: VirtualPathShellBackend) -> None:
     translated = backend._translate('echo "hello world"')  # noqa: SLF001
-    assert translated == "echo 'hello world'"
+    assert translated == 'echo "hello world"'
 
 
 def test_translate_leaves_flags_unchanged(backend: VirtualPathShellBackend) -> None:
@@ -69,6 +69,41 @@ def test_translate_handles_unbalanced_quotes(backend: VirtualPathShellBackend) -
     """shlex.split raises on unbalanced quotes — fall through, let the shell complain."""
     bad = "echo 'unterminated"
     assert backend._translate(bad) == bad  # noqa: SLF001
+
+
+def test_translate_preserves_shell_operators(backend: VirtualPathShellBackend) -> None:
+    """Pipes/redirects/&& must survive translation.
+
+    `shlex.join` used to quote them into literal arguments, so `execute`
+    silently ran a different command.
+    """
+    assert (
+        backend._translate("cat /etc/hostname | wc -c")  # noqa: SLF001
+        == "cat /etc/hostname | wc -c"
+    )
+    expected = f"ls {backend.cwd}/tailored_resume && echo done"
+    assert backend._translate("ls /tailored_resume && echo done") == expected  # noqa: SLF001
+    assert (
+        backend._translate("rendercv render x.yaml > out.log 2>&1")  # noqa: SLF001
+        == "rendercv render x.yaml > out.log 2>&1"
+    )
+
+
+def test_translate_preserves_unquoted_globs(backend: VirtualPathShellBackend) -> None:
+    """`*.yaml` must stay an unquoted glob, not become the literal '*.yaml'."""
+    expected = f"ls {backend.cwd}/tailored_resume/*.yaml"
+    assert backend._translate("ls /tailored_resume/*.yaml") == expected  # noqa: SLF001
+
+
+def test_execute_honors_pipes(tmp_path: Path, backend: VirtualPathShellBackend) -> None:
+    """End-to-end: a pipe in the command actually pipes.
+
+    Previously the `|` was quoted and each side failed with
+    'No such file or directory'.
+    """
+    result = backend.execute("echo hello | tr a-z A-Z")
+    assert result.exit_code == 0
+    assert result.output.strip() == "HELLO"
 
 
 def test_execute_runs_translated_command(
