@@ -63,6 +63,66 @@ def _emit_token(token: str) -> str:
     return shlex.quote(token)
 
 
+# Shell control operators delimit words even without surrounding whitespace
+# (`cmd >out` and `cmd > out` are identical). Scanning them as boundaries keeps
+# each token's source span exact, which matters when the same spelling appears
+# both as a standalone token and inside another word.
+_OPERATOR_CHARS = frozenset("|&;()<>")
+_WHITESPACE = frozenset(" \t\n")
+
+
+def _scan_word(command: str, start: int) -> tuple[int, bool]:
+    """Return `(end, balanced)` for the shell word beginning at `start`."""
+    length = len(command)
+    i = start
+    quote: str | None = None
+    while i < length:
+        char = command[i]
+        if quote is not None:
+            if char == "\\" and quote == '"':
+                i += 2
+                continue
+            if char == quote:
+                quote = None
+            i += 1
+            continue
+        if char in ("'", '"'):
+            quote = char
+            i += 1
+            continue
+        if char == "\\":
+            i += 2
+            continue
+        if char in _WHITESPACE or char in _OPERATOR_CHARS:
+            break
+        i += 1
+    return min(i, length), quote is None
+
+
+def _token_spans(command: str) -> list[tuple[int, int]] | None:
+    """Return `(start, end)` spans of the shell words in `command`.
+
+    A small scanner rather than `shlex.split` because we need each token's
+    *position* in the original string, not just its decoded value. Quotes and
+    backslash escapes are honoured; shell operators are skipped as boundaries.
+    Returns `None` when a quote is left unbalanced, in which case the caller
+    hands the command to the shell untouched so it can report the real error.
+    """
+    spans: list[tuple[int, int]] = []
+    i = 0
+    length = len(command)
+    while i < length:
+        if command[i] in _WHITESPACE or command[i] in _OPERATOR_CHARS:
+            i += 1
+            continue
+        end, balanced = _scan_word(command, i)
+        if not balanced:
+            return None
+        spans.append((i, end))
+        i = end
+    return spans
+
+
 class VirtualPathShellBackend(LocalShellBackend):
     """`LocalShellBackend` that rewrites `/virtual/path` tokens to real disk paths.
 
@@ -82,34 +142,43 @@ class VirtualPathShellBackend(LocalShellBackend):
         return super().execute(self._translate(command), timeout=timeout)
 
     def _translate(self, command: str) -> str:
-        try:
-            tokens = shlex.split(command, posix=True)
-        except ValueError:
+        spans = _token_spans(command)
+        if spans is None:
             # Unbalanced quotes — let the shell surface the real error.
             return command
-        rewritten = [self._rewrite_token(t) for t in tokens]
-        if rewritten == tokens:
+
+        out: list[str] = []
+        cursor = 0
+        changed = False
+        for start, end in spans:
+            raw = command[start:end]
+            try:
+                decoded = shlex.split(raw, posix=True)
+            except ValueError:
+                return command
+            if len(decoded) != 1:
+                # The scanner and shlex disagree on this word's extent; leave
+                # the command as written rather than splice at a wrong offset.
+                return command
+            token = decoded[0]
+            new = self._rewrite_token(token)
+            if new == token:
+                continue
+            # Splice by the word's original span. Searching for `token` in the
+            # whole command would also match a shorter occurrence inside an
+            # earlier word (e.g. the `/upload/x` in a `https://…/upload/x`
+            # URL), rewriting the wrong location and leaving the real argument
+            # untouched.
+            out.append(command[cursor:start])
+            out.append(_emit_token(new))
+            cursor = end
+            changed = True
+        if not changed:
             # Nothing to rewrite — return the original string byte-for-byte so
             # all of the caller's quoting (incl. quoted pipes/globs) survives.
             return command
-        out = command
-        cursor = 0
-        for orig, new in zip(tokens, rewritten, strict=True):
-            if new == orig:
-                continue
-            idx = out.find(orig, cursor)
-            if idx == -1:
-                # Token only survives via escaping/quoting; splice we can't
-                # anchor — fall back to the token joiner (still operator-safe).
-                return " ".join(_emit_token(t) for t in rewritten)
-            # Quoted tokens keep the caller's surrounding quotes (replace the
-            # inner text verbatim); bare tokens get re-quoted if needed.
-            piece = new if orig != shlex.join([orig]) else _emit_token(new)
-            out = out[:idx] + piece + out[idx + len(orig) :]
-            # The replacement covers the old token; resume search after it so
-            # repeated or prefix-overlapping tokens remap in command order.
-            cursor = idx + len(piece)
-        return out
+        out.append(command[cursor:])
+        return "".join(out)
 
     def _rewrite_token(self, token: str) -> str:
         if not token.startswith("/"):
