@@ -95,6 +95,29 @@ def test_translate_preserves_unquoted_globs(backend: VirtualPathShellBackend) ->
     assert backend._translate("ls /tailored_resume/*.yaml") == expected  # noqa: SLF001
 
 
+def test_translate_does_not_rewrite_path_inside_another_token(
+    tmp_path: Path,
+    backend: VirtualPathShellBackend,
+) -> None:
+    """Only a standalone path token is rewritten, never a substring of another word.
+
+    The translator used to anchor replacements with `command.find(token)`, so a
+    virtual path that also appeared inside an earlier argument — a download URL,
+    or a relative path like `stale/upload/x` — had *that* occurrence rewritten
+    while the real standalone argument was left pointing at the virtual path.
+    """
+    upload = tmp_path / "upload"
+    upload.mkdir()
+    dest = upload / "n.txt"
+    dest.write_text("x")
+
+    command = "curl https://example.com/upload/n.txt -o /upload/n.txt"
+
+    assert backend._translate(command) == (  # noqa: SLF001
+        f"curl https://example.com/upload/n.txt -o {dest}"
+    )
+
+
 def test_execute_honors_pipes(tmp_path: Path, backend: VirtualPathShellBackend) -> None:
     """End-to-end: a pipe in the command actually pipes.
 
